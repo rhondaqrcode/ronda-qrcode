@@ -40,7 +40,7 @@ def create_app() -> FastAPI:
     title=settings.app_name,
     version="2.0.0",
     description="API REST para supervisao de zeladoria, conservacao e facilities.",
-    # lifespan=lifespan,
+    lifespan=lifespan,
     )
 
     app.add_middleware(
