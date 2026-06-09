@@ -1,0 +1,35 @@
+[project]
+name = "zeladoria-api"
+version = "1.0.0"
+description = "Backend FastAPI para sistema de zeladoria"
+requires-python = ">=3.10,<3.15"
+dependencies = [
+    "fastapi>=0.115.6,<1.0.0",
+    "uvicorn[standard]>=0.34.0,<1.0.0",
+    "sqlalchemy>=2.0.36,<3.0.0",
+    "pydantic-settings>=2.7.1,<3.0.0",
+    "email-validator>=2.2.0,<3.0.0",
+    "python-jose[cryptography]>=3.3.0,<4.0.0",
+    "python-multipart>=0.0.20,<1.0.0",
+    "Pillow>=10.4.0,<13.0.0",
+    "psycopg[binary]>=3.2.3,<4.0.0",
+    "qrcode>=8.0,<9.0",
+    "streamlit>=1.41.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4,<9.0.0",
+    "httpx>=0.28.1,<1.0.0",
+    "ruff>=0.8.4,<1.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+zeladoria.db
+backend/facilities.db
+media/
+uploads/*
+!uploads/.gitkeep
+reports/*
+!reports/.gitkeep
+.pytest_cache/
+dist_pythonanywhere/

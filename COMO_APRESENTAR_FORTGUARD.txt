@@ -1,0 +1,35 @@
+COMO APRESENTAR O FORTGUARD AO CLIENTE
+
+1. Abra a pasta do sistema:
+   C:\Users\ghost\OneDrive\Documentos\magnum
+
+2. De dois cliques em:
+   run_backoffice.bat
+
+3. Uma janela chamada "FortGuard Server" vai abrir.
+   Ela e o motor local do sistema.
+   Deixe essa janela aberta enquanto estiver usando ou mostrando o sistema.
+
+4. O navegador deve abrir sozinho em:
+   http://localhost:8501
+
+5. Se o navegador nao abrir sozinho, abra manualmente:
+   http://localhost:8501
+
+6. Para encerrar o sistema:
+   feche a janela "FortGuard Server".
+
+USO NO DIA A DIA
+
+Sempre use o arquivo run_backoffice.bat para abrir o sistema.
+Nao precisa digitar comandos.
+Se o sistema ja estiver rodando, o atalho apenas abre o navegador.
+
+IMPORTANTE
+
+Este sistema roda somente localmente no notebook.
+Ele nao publica dados na internet.
+O banco de dados fica salvo no arquivo local:
+backoffice_zeladoria.db
+
+Antes de apresentar, entre na aba Backup e clique em "Criar backup agora".
