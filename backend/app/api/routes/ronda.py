@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from uuid import uuid4
@@ -336,21 +337,17 @@ def finish_shift(
 
     config = _get_config(db)
     logger.info(
-        "Generating shift report before SMTP send. turno_id=%s smtp_configured=%s smtp_host=%s "
-        "smtp_port=%s smtp_tls=%s sender_configured=%s supervisor_email=%s",
+        "Generating shift report before Resend email send. turno_id=%s resend_configured=%s "
+        "supervisor_email=%s",
         turno.id,
-        bool(config.smtp_host and config.smtp_email_remetente and config.smtp_senha),
-        config.smtp_host,
-        config.smtp_porta,
-        config.smtp_tls,
-        bool(config.smtp_email_remetente),
+        bool(os.environ.get("RESEND_API_KEY")),
         config.email_supervisor,
     )
     report_url = generate_shift_report_html(db, turno, config)
     logger.info("Shift report generated. turno_id=%s report_url=%s", turno.id, report_url)
     email_sent, email_status = send_shift_report_email(db, turno, config, report_url)
     logger.info(
-        "SMTP send function returned. turno_id=%s email_sent=%s email_status=%s",
+        "Resend email send function returned. turno_id=%s email_sent=%s email_status=%s",
         turno.id,
         email_sent,
         email_status,

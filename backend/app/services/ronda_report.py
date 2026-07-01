@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from email.message import EmailMessage
 from pathlib import Path
 import html
 import logging
-import smtplib
+import os
 from uuid import uuid4
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,6 +15,8 @@ from backend.app.core.config import settings
 from backend.app.models import CompanySettings, QrPoint, QrReading, Shift
 
 logger = logging.getLogger(__name__)
+RESEND_API_URL = "https://api.resend.com/emails"
+DEFAULT_RESEND_FROM_EMAIL = "Ronda QR <onboarding@resend.dev>"
 
 
 def generate_shift_report_html(db: Session, turno: Shift, config: CompanySettings) -> str:
@@ -137,137 +139,104 @@ def send_shift_report_email(
     config: CompanySettings,
     report_url: str,
 ) -> tuple[bool, str]:
-    if not (config.smtp_host and config.smtp_email_remetente and config.smtp_senha):
+    resend_api_key = os.environ.get("RESEND_API_KEY")
+    resend_from_email = os.environ.get("RESEND_FROM_EMAIL", DEFAULT_RESEND_FROM_EMAIL)
+    recipient = config.email_supervisor
+    if not resend_api_key:
         logger.info(
-            "SMTP skipped for shift report: missing configuration. turno_id=%s has_host=%s "
-            "has_sender=%s has_password=%s supervisor_email=%s",
+            "Resend skipped for shift report: RESEND_API_KEY is not configured. "
+            "turno_id=%s recipient=%s sender=%s",
             turno.id,
-            bool(config.smtp_host),
-            bool(config.smtp_email_remetente),
-            bool(config.smtp_senha),
-            config.email_supervisor,
+            recipient,
+            resend_from_email,
         )
-        return False, "SMTP nao configurado; relatorio gerado e envio aguardando configuracao."
+        return False, "Resend nao configurado; relatorio gerado e envio aguardando configuracao."
 
     turno = _load_turno(db, turno.id)
-    subject = f"Relatorio de Turno - {turno.funcionario.name} - {turno.data_inicio:%d/%m/%Y}"
+    subject = f"Relatorio de Ronda - Turno #{turno.id}"
     report_path = _url_to_path(report_url)
     html_body = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+    if html_body:
+        html_body = html_body.replace(
+            "</body>",
+            (
+                "<p><strong>Link/arquivo do relatorio:</strong> "
+                f"{html.escape(report_url)}</p></body>"
+            ),
+        )
+    else:
+        html_body = (
+            "<html><body>"
+            "<h1>Relatorio de Ronda</h1>"
+            f"<p>Relatorio de turno gerado. Link/arquivo: {html.escape(report_url)}</p>"
+            "</body></html>"
+        )
     logger.info(
-        "Preparing SMTP shift report email. turno_id=%s funcionario_id=%s leituras=%s "
-        "smtp_host=%s smtp_port=%s smtp_tls=%s sender=%s recipient=%s report_url=%s "
-        "report_path=%s report_exists=%s html_body_bytes=%s",
+        "Preparing Resend shift report email. turno_id=%s funcionario_id=%s leituras=%s "
+        "sender=%s recipient=%s report_url=%s report_path=%s report_exists=%s html_body_bytes=%s",
         turno.id,
         turno.funcionario_id,
         len(turno.leituras),
-        config.smtp_host,
-        config.smtp_porta,
-        config.smtp_tls,
-        config.smtp_email_remetente,
-        config.email_supervisor,
+        resend_from_email,
+        recipient,
         report_url,
         report_path,
         report_path.exists(),
         len(html_body.encode("utf-8")),
     )
 
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = config.smtp_email_remetente
-    message["To"] = config.email_supervisor
-    message.set_content(
-        f"Relatorio de turno gerado. Acesse o HTML do relatorio em {report_url}.",
-        subtype="plain",
-    )
-    message.add_alternative(html_body, subtype="html")
-
-    for leitura in turno.leituras:
-        photo_path = _url_to_path(leitura.foto)
-        if photo_path.exists():
-            logger.info(
-                "Attaching ronda photo to SMTP email. turno_id=%s leitura_id=%s path=%s bytes=%s",
-                turno.id,
-                leitura.id,
-                photo_path,
-                photo_path.stat().st_size,
-            )
-            message.add_attachment(
-                photo_path.read_bytes(),
-                maintype="image",
-                subtype=photo_path.suffix.lstrip(".") or "jpeg",
-                filename=photo_path.name,
-            )
-        else:
-            logger.warning(
-                "Ronda photo referenced by reading was not found. turno_id=%s leitura_id=%s url=%s path=%s",
-                turno.id,
-                leitura.id,
-                leitura.foto,
-                photo_path,
-            )
+    payload = {
+        "from": resend_from_email,
+        "to": [recipient],
+        "subject": subject,
+        "html": html_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {resend_api_key}",
+        "Content-Type": "application/json",
+    }
 
     try:
         logger.info(
-            "Opening SMTP connection for shift report. turno_id=%s smtp_host=%s smtp_port=%s "
-            "smtp_tls=%s timeout=20",
+            "Posting shift report email to Resend API. turno_id=%s url=%s sender=%s recipient=%s",
             turno.id,
-            config.smtp_host,
-            config.smtp_porta,
-            config.smtp_tls,
+            RESEND_API_URL,
+            resend_from_email,
+            recipient,
         )
-        with smtplib.SMTP(config.smtp_host, config.smtp_porta, timeout=20) as smtp:
-            if config.smtp_tls:
-                logger.info(
-                    "Starting SMTP TLS for shift report. turno_id=%s smtp_host=%s smtp_port=%s",
-                    turno.id,
-                    config.smtp_host,
-                    config.smtp_porta,
-                )
-                smtp.starttls()
-            logger.info(
-                "Logging in to SMTP server for shift report. turno_id=%s sender=%s",
-                turno.id,
-                config.smtp_email_remetente,
-            )
-            smtp.login(config.smtp_email_remetente, config.smtp_senha)
-            logger.info(
-                "Sending SMTP message for shift report. turno_id=%s recipient=%s attachments=%s",
-                turno.id,
-                config.email_supervisor,
-                len(turno.leituras),
-            )
-            smtp.send_message(message)
-    except OSError as exc:
-        logger.exception(
-            "SMTP network/OS failure while sending shift report. turno_id=%s smtp_host=%s "
-            "smtp_port=%s smtp_tls=%s sender=%s recipient=%s report_url=%s",
+        response = httpx.post(RESEND_API_URL, headers=headers, json=payload, timeout=20)
+        logger.info(
+            "Resend API response for shift report. turno_id=%s status_code=%s response_body=%s",
             turno.id,
-            config.smtp_host,
-            config.smtp_porta,
-            config.smtp_tls,
-            config.smtp_email_remetente,
-            config.email_supervisor,
+            response.status_code,
+            response.text[:1000],
+        )
+    except httpx.HTTPError as exc:
+        logger.exception(
+            "Resend HTTP failure while sending shift report. turno_id=%s sender=%s recipient=%s report_url=%s",
+            turno.id,
+            resend_from_email,
+            recipient,
             report_url,
         )
-        return False, f"Falha no envio SMTP: {exc}"
+        return False, f"Falha no envio via Resend: {exc}"
     except Exception:
         logger.exception(
-            "Unexpected SMTP failure while sending shift report. turno_id=%s smtp_host=%s "
-            "smtp_port=%s smtp_tls=%s sender=%s recipient=%s report_url=%s",
+            "Unexpected Resend failure while sending shift report. turno_id=%s sender=%s recipient=%s report_url=%s",
             turno.id,
-            config.smtp_host,
-            config.smtp_porta,
-            config.smtp_tls,
-            config.smtp_email_remetente,
-            config.email_supervisor,
+            resend_from_email,
+            recipient,
             report_url,
         )
         raise
 
+    if response.status_code >= 400:
+        return False, f"Falha no envio via Resend: HTTP {response.status_code} - {response.text[:500]}"
+
     logger.info(
-        "SMTP shift report email sent successfully. turno_id=%s recipient=%s report_url=%s",
+        "Resend shift report email sent successfully. turno_id=%s recipient=%s report_url=%s",
         turno.id,
-        config.email_supervisor,
+        recipient,
         report_url,
     )
     return True, "Relatorio enviado automaticamente ao supervisor."
