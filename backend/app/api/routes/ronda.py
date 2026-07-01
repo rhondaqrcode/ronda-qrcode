@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from uuid import uuid4
@@ -38,6 +39,7 @@ from backend.app.services.ronda_report import generate_shift_report_html, send_s
 from backend.app.services.storage import cleanup_old_storage_files, save_compressed_upload_file
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/public-config", response_model=PublicCompanySettings)
@@ -312,8 +314,20 @@ def finish_shift(
     employee = _current_employee(user, db)
     turno = _active_shift(db, employee.id)
     if not turno:
+        logger.warning(
+            "Finish shift requested without active shift. user_id=%s employee_id=%s",
+            user.id,
+            employee.id,
+        )
         raise HTTPException(status_code=404, detail="Nao existe turno ativo para finalizar.")
 
+    logger.info(
+        "Finishing ronda shift. turno_id=%s user_id=%s employee_id=%s observacao_final_present=%s",
+        turno.id,
+        user.id,
+        employee.id,
+        bool(payload.observacao_final),
+    )
     turno.data_fim = datetime.now(timezone.utc)
     turno.status = ShiftStatus.finished
     turno.observacao_final = payload.observacao_final
@@ -321,8 +335,26 @@ def finish_shift(
     db.refresh(turno)
 
     config = _get_config(db)
+    logger.info(
+        "Generating shift report before SMTP send. turno_id=%s smtp_configured=%s smtp_host=%s "
+        "smtp_port=%s smtp_tls=%s sender_configured=%s supervisor_email=%s",
+        turno.id,
+        bool(config.smtp_host and config.smtp_email_remetente and config.smtp_senha),
+        config.smtp_host,
+        config.smtp_porta,
+        config.smtp_tls,
+        bool(config.smtp_email_remetente),
+        config.email_supervisor,
+    )
     report_url = generate_shift_report_html(db, turno, config)
+    logger.info("Shift report generated. turno_id=%s report_url=%s", turno.id, report_url)
     email_sent, email_status = send_shift_report_email(db, turno, config, report_url)
+    logger.info(
+        "SMTP send function returned. turno_id=%s email_sent=%s email_status=%s",
+        turno.id,
+        email_sent,
+        email_status,
+    )
     turno.relatorio_html = report_url
     turno.email_enviado = email_sent
     turno.email_status = email_status
