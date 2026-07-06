@@ -215,14 +215,14 @@ function renderLogin() {
           <p>Ronda eletronica por QR Code</p>
         </div>
         ${messageArea()}
-        <form onsubmit="login(event)" class="form">
+        <form onsubmit="login(event)" class="form" autocomplete="off">
           <label>
             Usuario
-            <input name="username" type="email" autocomplete="username" required />
+            <input name="username" type="email" autocomplete="off" autocapitalize="none" spellcheck="false" required />
           </label>
           <label>
             Senha
-            <input name="password" type="password" autocomplete="current-password" required />
+            <input name="password" type="password" autocomplete="new-password" required />
           </label>
           <button class="primary" type="submit">Entrar</button>
         </form>
