@@ -310,7 +310,7 @@ function operationView() {
     </section>
 
     <section class="actions">
-      ${active ? `<button class="primary" onclick="openScan()">Ler QR Code</button>` : `<button class="primary" onclick="startShift()">Iniciar turno de ${escapeHtml(employeeName)}</button>`}
+      ${active ? `<button class="primary" onclick="openScan()">Registrar ponto</button>` : `<button class="primary" onclick="startShift()">Iniciar turno de ${escapeHtml(employeeName)}</button>`}
       ${active ? `<button class="secondary" onclick="finishShift(event)">Finalizar Turno</button>` : ""}
     </section>
 
@@ -344,6 +344,8 @@ function operationView() {
 }
 
 function scanPanel() {
+  const shiftPoints = state.shift?.pontos || [];
+  const activePoints = (shiftPoints.length ? shiftPoints : state.points).filter((point) => point.ativo !== false);
   return html`
     <section class="panel scan-panel" id="scanPanel" hidden>
       <div class="panel-title">
@@ -353,9 +355,16 @@ function scanPanel() {
       <video id="scannerVideo" playsinline muted hidden></video>
       <form class="form" onsubmit="submitReading(event)">
         <label>
-          Codigo QR
+          Ponto da ronda
           <div class="inline">
-            <input name="codigo_qr" id="qrInput" required placeholder="PONTO_PORTAO_01" />
+            <select name="codigo_qr" id="qrInput" required ${activePoints.length ? "" : "disabled"}>
+              <option value="">Escolha por onde vai registrar a ronda</option>
+              ${activePoints.map((point) => `
+                <option value="${escapeHtml(point.codigo_qr)}">
+                  ${escapeHtml(point.nome_ponto)} - ${point.passagens_realizadas || 0}/${point.meta_passagens_turno || 1}
+                </option>
+              `).join("")}
+            </select>
             <button type="button" class="secondary" onclick="startCameraScan()">Camera</button>
           </div>
         </label>
@@ -815,7 +824,7 @@ async function startCameraScan() {
   const video = document.querySelector("#scannerVideo");
   const input = document.querySelector("#qrInput");
   if (!("BarcodeDetector" in window)) {
-    setError("Leitura automatica indisponivel neste navegador. Digite o codigo do QR.");
+    setError("Leitura automatica indisponivel neste navegador. Escolha o ponto na lista.");
     return;
   }
   try {
@@ -832,7 +841,13 @@ async function startCameraScan() {
       if (!state.scanner.running) return;
       const codes = await detector.detect(video);
       if (codes.length) {
-        input.value = codes[0].rawValue;
+        const scannedCode = codes[0].rawValue;
+        if ([...input.options].some((option) => option.value === scannedCode)) {
+          input.value = scannedCode;
+          setNotice("Ponto selecionado pela camera.");
+        } else {
+          setError("QR Code lido nao corresponde a um ponto ativo deste turno.");
+        }
         stopCameraScan();
         return;
       }
