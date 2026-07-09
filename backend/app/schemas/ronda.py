@@ -74,6 +74,9 @@ class QrPointRead(ORMModel):
     latitude: float | None
     longitude: float | None
     raio_permitido_metros: int | None
+    gps_inicializado: bool
+    gps_inicializado_em: datetime | None
+    gps_inicializacao_precisao_metros: float | None
     ativo: bool
     criado_em: datetime
 
@@ -100,6 +103,7 @@ class ReadingRead(ORMModel):
     gps_precisao_metros: float
     gps_distancia_metros: float
     gps_status: str
+    gps_inicializou_posto: bool
     status: str
     ponto: QrPointRead
 

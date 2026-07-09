@@ -61,8 +61,6 @@ def init_db() -> None:
                         ordem=1,
                         meta_passagens_turno=4,
                         carencia_minutos=45,
-                        latitude=-23.550520,
-                        longitude=-46.633308,
                         raio_permitido_metros=20,
                     ),
                     QrPoint(
@@ -72,8 +70,6 @@ def init_db() -> None:
                         ordem=2,
                         meta_passagens_turno=4,
                         carencia_minutos=45,
-                        latitude=-23.550620,
-                        longitude=-46.633408,
                         raio_permitido_metros=20,
                     ),
                     QrPoint(
@@ -83,8 +79,6 @@ def init_db() -> None:
                         ordem=3,
                         meta_passagens_turno=4,
                         carencia_minutos=45,
-                        latitude=-23.550720,
-                        longitude=-46.633508,
                         raio_permitido_metros=20,
                     ),
                 ]
@@ -109,6 +103,15 @@ def _ensure_ronda_columns() -> None:
         statements.append("ALTER TABLE pontos_qr ADD COLUMN longitude FLOAT")
     if "raio_permitido_metros" not in columns:
         statements.append("ALTER TABLE pontos_qr ADD COLUMN raio_permitido_metros INTEGER")
+    if "gps_inicializado" not in columns:
+        statements.append("ALTER TABLE pontos_qr ADD COLUMN gps_inicializado BOOLEAN NOT NULL DEFAULT FALSE")
+    if "gps_inicializado_em" not in columns:
+        statements.append("ALTER TABLE pontos_qr ADD COLUMN gps_inicializado_em TIMESTAMP WITH TIME ZONE")
+    if "gps_inicializacao_precisao_metros" not in columns:
+        statements.append("ALTER TABLE pontos_qr ADD COLUMN gps_inicializacao_precisao_metros FLOAT")
+    statements.append(
+        "UPDATE pontos_qr SET gps_inicializado = TRUE WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
+    )
 
     if "configuracoes" in table_names:
         config_columns = {column["name"] for column in inspector.get_columns("configuracoes")}
@@ -128,6 +131,10 @@ def _ensure_ronda_columns() -> None:
         if "gps_status" not in reading_columns:
             statements.append(
                 "ALTER TABLE leituras_qr ADD COLUMN gps_status VARCHAR(40) NOT NULL DEFAULT 'GPS VALIDADO'"
+            )
+        if "gps_inicializou_posto" not in reading_columns:
+            statements.append(
+                "ALTER TABLE leituras_qr ADD COLUMN gps_inicializou_posto BOOLEAN NOT NULL DEFAULT FALSE"
             )
     if not statements:
         return

@@ -22,8 +22,6 @@ def test_qr_shift_flow_generates_report() -> None:
                 "ordem": 99,
                 "meta_passagens_turno": 2,
                 "carencia_minutos": 45,
-                "latitude": -22.512345,
-                "longitude": -44.123456,
                 "raio_permitido_metros": 20,
             },
             headers=headers,
@@ -51,6 +49,9 @@ def test_qr_shift_flow_generates_report() -> None:
         assert reading.status_code == 201
         assert reading.json()["ponto"]["codigo_qr"] == qr_code
         assert reading.json()["gps_status"] == "GPS VALIDADO"
+        assert reading.json()["gps_inicializou_posto"] is True
+        assert reading.json()["ponto"]["gps_inicializado"] is True
+        assert reading.json()["ponto"]["latitude"] == -22.512345
 
         duplicate = client.post(
             "/ronda/leituras",
@@ -121,7 +122,64 @@ def test_qr_reading_blocks_outside_gps_radius() -> None:
             files={"foto": ("foto.png", _png_bytes(), "image/png")},
         )
         assert reading.status_code == 422
-        assert "fora da area permitida" in reading.json()["detail"]
+        assert reading.json()["detail"] == "Voce nao esta no local correto deste posto."
+
+        client.post(
+            "/ronda/turnos/finalizar",
+            headers=headers,
+            json={"observacao_final": "Teste GPS fora do raio finalizado"},
+        )
+
+
+def test_qr_reading_defers_auto_initialization_when_gps_accuracy_is_poor() -> None:
+    with TestClient(app) as client:
+        token = _login(client)
+        headers = {"Authorization": f"Bearer {token}"}
+        qr_code = f"PONTO_GPS_AGUARDA_{uuid4().hex[:8].upper()}"
+
+        point = client.post(
+            "/ronda/pontos",
+            json={
+                "nome_ponto": "Ponto GPS aguardando",
+                "codigo_qr": qr_code,
+                "descricao": "Ponto sem coordenadas iniciais.",
+                "ordem": 101,
+                "meta_passagens_turno": 1,
+                "carencia_minutos": 0,
+                "raio_permitido_metros": 20,
+            },
+            headers=headers,
+        )
+        assert point.status_code == 201
+        assert point.json()["gps_inicializado"] is False
+
+        started = client.post("/ronda/turnos/iniciar", headers=headers)
+        assert started.status_code in (200, 201)
+
+        reading = client.post(
+            "/ronda/leituras",
+            headers=headers,
+            data={
+                "codigo_qr": qr_code,
+                "gps_latitude": "-22.512345",
+                "gps_longitude": "-44.123456",
+                "gps_precisao_metros": "25",
+                "gps_data_hora": "2026-07-09T12:00:00Z",
+                "observacao": "",
+                "ocorrencia": "",
+            },
+            files={"foto": ("foto.png", _png_bytes(), "image/png")},
+        )
+        assert reading.status_code == 201
+        assert reading.json()["gps_status"] == "GPS AGUARDANDO INICIALIZACAO"
+        assert reading.json()["gps_inicializou_posto"] is False
+        assert reading.json()["ponto"]["gps_inicializado"] is False
+
+        client.post(
+            "/ronda/turnos/finalizar",
+            headers=headers,
+            json={"observacao_final": "Teste GPS aguardando finalizado"},
+        )
 
 
 def _login(client: TestClient) -> str:

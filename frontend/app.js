@@ -481,8 +481,8 @@ function adminView() {
           <label>Ordem na ronda<input name="ordem" type="number" min="0" value="0" /></label>
           <label>Meta de passagens por turno<input name="meta_passagens_turno" type="number" min="1" value="4" /></label>
           <label>Carencia entre leituras em minutos<input name="carencia_minutos" type="number" min="0" value="45" /></label>
-          <label>Latitude<input name="latitude" type="number" step="0.000001" min="-90" max="90" placeholder="-22.512345" required /></label>
-          <label>Longitude<input name="longitude" type="number" step="0.000001" min="-180" max="180" placeholder="-44.123456" required /></label>
+          <label>Latitude<input name="latitude" type="number" step="0.000001" min="-90" max="90" placeholder="-22.512345" /></label>
+          <label>Longitude<input name="longitude" type="number" step="0.000001" min="-180" max="180" placeholder="-44.123456" /></label>
           <label>Raio permitido em metros<input name="raio_permitido_metros" type="number" min="1" max="1000" placeholder="${state.adminConfig?.raio_padrao_metros || 20}" /></label>
           <button class="secondary" type="button" onclick="capturePointLocation(this)">Capturar localizacao atual</button>
           <label>Descricao<textarea name="descricao" rows="2" placeholder="Detalhes opcionais do local"></textarea></label>
@@ -557,8 +557,8 @@ function pointRow(point) {
           <label>Ordem na ronda<input name="ordem" type="number" min="0" value="${point.ordem || 0}" /></label>
           <label>Meta de passagens por turno<input name="meta_passagens_turno" type="number" min="1" max="50" value="${point.meta_passagens_turno || 4}" /></label>
           <label>Carencia entre leituras em minutos<input name="carencia_minutos" type="number" min="0" max="1440" value="${point.carencia_minutos || 45}" /></label>
-          <label>Latitude<input name="latitude" type="number" step="0.000001" min="-90" max="90" value="${point.latitude ?? ""}" required /></label>
-          <label>Longitude<input name="longitude" type="number" step="0.000001" min="-180" max="180" value="${point.longitude ?? ""}" required /></label>
+          <label>Latitude<input name="latitude" type="number" step="0.000001" min="-90" max="90" value="${point.latitude ?? ""}" /></label>
+          <label>Longitude<input name="longitude" type="number" step="0.000001" min="-180" max="180" value="${point.longitude ?? ""}" /></label>
           <label>Raio permitido em metros<input name="raio_permitido_metros" type="number" min="1" max="1000" value="${point.raio_permitido_metros ?? ""}" placeholder="${state.adminConfig?.raio_padrao_metros || 20}" /></label>
           <button class="secondary" type="button" onclick="capturePointLocation(this)">Capturar localizacao atual</button>
           <label>Descricao<textarea name="descricao" rows="2">${escapeHtml(point.descricao || "")}</textarea></label>
@@ -578,7 +578,7 @@ function pointRow(point) {
         <strong>${escapeHtml(point.nome_ponto)}</strong>
         <span>${escapeHtml(point.codigo_qr)} · ${point.ativo ? "Ativo" : "Inativo"}</span>
         <span>Meta: ${point.meta_passagens_turno || 1} passagens por turno - Carencia: ${point.carencia_minutos || 0} min</span>
-        <span>GPS: ${point.latitude !== null && point.longitude !== null ? `${fmtMeters(point.raio_permitido_metros || state.adminConfig?.raio_padrao_metros || 20)} de raio` : "Nao configurado"}</span>
+        <span>GPS: ${point.gps_inicializado ? `${fmtMeters(point.raio_permitido_metros || state.adminConfig?.raio_padrao_metros || 20)} de raio` : "Aguardando primeira leitura"}</span>
         <img class="qr-preview" src="/ronda/pontos/${point.id}/qr.svg" alt="QR ${escapeHtml(point.nome_ponto)}" />
       </div>
       <div class="row-actions">
@@ -989,8 +989,8 @@ async function createPoint(event) {
         ordem: Number(form.ordem || 0),
         meta_passagens_turno: Number(form.meta_passagens_turno || 4),
         carencia_minutos: Number(form.carencia_minutos || 45),
-        latitude: Number(form.latitude),
-        longitude: Number(form.longitude),
+        latitude: numberOrNull(form.latitude),
+        longitude: numberOrNull(form.longitude),
         raio_permitido_metros: numberOrNull(form.raio_permitido_metros),
       }),
     });
@@ -1026,8 +1026,8 @@ async function updatePoint(event, id) {
         ordem: Number(form.ordem || 0),
         meta_passagens_turno: Number(form.meta_passagens_turno || 4),
         carencia_minutos: Number(form.carencia_minutos || 45),
-        latitude: Number(form.latitude),
-        longitude: Number(form.longitude),
+        latitude: numberOrNull(form.latitude),
+        longitude: numberOrNull(form.longitude),
         raio_permitido_metros: numberOrNull(form.raio_permitido_metros),
         ativo: formElement.ativo.checked,
       }),

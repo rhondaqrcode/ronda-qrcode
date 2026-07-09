@@ -272,14 +272,15 @@ def _fmt(value: datetime | None) -> str:
 def _gps_info_html(leitura: QrReading | None) -> str:
     if leitura is None:
         return "-"
-    status = leitura.gps_status or "GPS VALIDADO"
-    status_label = "GPS VALIDADO" if status == "GPS VALIDADO" else "GPS INVALIDO"
+    status_label = leitura.gps_status or "GPS VALIDADO"
+    initialized = "Sim" if leitura.gps_inicializou_posto else "Nao"
     return (
         f"<strong>{html.escape(status_label)}</strong><br />"
         f"Latitude: {_fmt_coord(leitura.gps_latitude)}<br />"
         f"Longitude: {_fmt_coord(leitura.gps_longitude)}<br />"
         f"Precisao GPS: {_fmt_meters(leitura.gps_precisao_metros)}<br />"
-        f"Distancia do posto: {_fmt_meters(leitura.gps_distancia_metros)}"
+        f"Distancia do posto: {_fmt_meters(leitura.gps_distancia_metros)}<br />"
+        f"Posto inicializado automaticamente: {initialized}"
     )
 
 

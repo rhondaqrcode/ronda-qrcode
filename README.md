@@ -92,25 +92,31 @@ No perfil administrador ou supervisor:
 
 - Cadastrar funcionarios.
 - Ativar/desativar funcionarios.
-- Cadastrar pontos QR com latitude, longitude e raio permitido em metros.
-- Capturar a localizacao atual do celular ao cadastrar ou editar o ponto.
+- Cadastrar pontos QR sem obrigatoriedade de latitude e longitude.
+- Permitir captura manual de localizacao pelo admin quando for necessario redefinir um ponto.
 - Ativar/desativar pontos QR.
 - Visualizar QR Code SVG dos pontos.
 - Configurar nome da empresa, logo, e-mail do supervisor, cor principal e raio GPS padrao.
 
 ## Validacao GPS
 
-Cada ponto de ronda possui latitude, longitude e raio permitido em metros. Se o ponto nao tiver raio proprio, o sistema usa o raio padrao global, inicialmente 20 metros.
+Cada ponto de ronda pode possuir latitude, longitude e raio permitido em metros. Se o ponto nao tiver raio proprio, o sistema usa o raio padrao global, inicialmente 20 metros.
 
 Ao registrar uma leitura, o frontend usa a Geolocation API do navegador para capturar latitude, longitude, precisao e data/hora da localizacao. O backend calcula a distancia ate o ponto pela formula de Haversine.
 
-A leitura e aprovada somente quando:
+Quando o ponto ainda nao possui coordenadas, a primeira leitura com precisao de GPS igual ou melhor que 20 metros inicializa o ponto automaticamente, salvando latitude, longitude, precisao e data/hora. Isso acontece em silencio, sem aviso ao funcionario.
+
+Se a precisao estiver pior que 20 metros nessa primeira fase, a leitura segue registrada, mas o ponto continua aguardando uma proxima leitura com precisao suficiente para inicializacao.
+
+Depois que o ponto estiver inicializado, a leitura e aprovada somente quando:
 
 - o GPS esta disponivel e autorizado;
 - a precisao do GPS e de ate 30 metros;
 - a distancia atual e menor ou igual ao raio permitido do ponto.
 
-Se o funcionario estiver fora da area permitida, a leitura e bloqueada com a mensagem de distancia atual e raio permitido. Leituras aprovadas registram latitude, longitude, precisao, distancia e status GPS no banco e no relatorio.
+Se o funcionario estiver fora da area permitida, a leitura e bloqueada sem revelar coordenadas. Leituras aprovadas registram latitude, longitude, precisao, distancia, status GPS e se inicializaram o posto no banco e no relatorio.
+
+Apos inicializado, o ponto nao tem sua localizacao alterada automaticamente. Apenas um administrador pode redefinir manualmente as coordenadas.
 
 ## Principais Rotas
 

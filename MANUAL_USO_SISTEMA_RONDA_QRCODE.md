@@ -114,9 +114,9 @@ Para cadastrar um ponto:
 3. Informe a ordem na lista.
 4. Informe a meta de passagens por turno.
 5. Informe a carencia entre leituras em minutos.
-6. Informe latitude e longitude do local.
+6. Se quiser, informe latitude e longitude do local. Esses campos podem ficar em branco.
 7. Informe o raio permitido em metros, se quiser sobrescrever o raio padrao.
-8. Se estiver no local do ponto, clique em Capturar localizacao atual para preencher latitude e longitude automaticamente.
+8. Se estiver no local do ponto e quiser definir manualmente, clique em Capturar localizacao atual.
 9. Informe uma descricao, se desejar.
 10. Clique em Cadastrar ponto.
 
@@ -175,7 +175,9 @@ Exemplo:
 - latitude: -22.512345;
 - longitude: -44.123456.
 
-O administrador pode preencher manualmente ou usar o botao Capturar localizacao atual pelo celular.
+O administrador pode preencher manualmente ou usar o botao Capturar localizacao atual pelo celular, mas isso nao e obrigatorio.
+
+Se latitude e longitude ficarem vazias, o proprio sistema inicializa o ponto automaticamente na primeira leitura com GPS preciso.
 
 ### Raio permitido
 
@@ -255,7 +257,11 @@ Para registrar uma ronda:
 
 O sistema registra automaticamente o horario usando o horario do servidor e valida a localizacao GPS antes de salvar.
 
-Se o funcionario estiver fora do raio permitido, a leitura sera bloqueada e a tela mostrara a distancia atual e o raio permitido.
+Se for a primeira leitura de um ponto ainda sem coordenadas e o GPS estiver com precisao de ate 20 metros, o sistema salva a localizacao do ponto automaticamente. O funcionario nao recebe aviso; a leitura segue normalmente.
+
+Se a precisao estiver pior que 20 metros nessa primeira fase, a leitura pode ser registrada, mas o ponto continua aguardando uma proxima leitura precisa para inicializar.
+
+Depois que o ponto ja estiver inicializado, se o funcionario estiver fora do local correto, a leitura sera bloqueada.
 
 Se o GPS estiver desativado, a permissao for negada, a localizacao estiver indisponivel ou a precisao estiver acima de 30 metros, a leitura tambem sera bloqueada.
 

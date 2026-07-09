@@ -48,6 +48,9 @@ class QrPoint(Base):
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     raio_permitido_metros: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gps_inicializado: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    gps_inicializado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    gps_inicializacao_precisao_metros: Mapped[float | None] = mapped_column(Float, nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
@@ -95,6 +98,7 @@ class QrReading(Base):
     gps_precisao_metros: Mapped[float] = mapped_column(Float, nullable=False)
     gps_distancia_metros: Mapped[float] = mapped_column(Float, nullable=False)
     gps_status: Mapped[str] = mapped_column(String(40), default="GPS VALIDADO", nullable=False)
+    gps_inicializou_posto: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[ReadingStatus] = mapped_column(
         Enum(ReadingStatus), default=ReadingStatus.completed, nullable=False
     )

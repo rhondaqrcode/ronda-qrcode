@@ -43,6 +43,7 @@ from backend.app.services.storage import cleanup_old_storage_files, save_compres
 router = APIRouter()
 logger = logging.getLogger(__name__)
 MAX_GPS_ACCURACY_METERS = 30
+MAX_GPS_AUTO_INIT_ACCURACY_METERS = 20
 
 
 @router.get("/public-config", response_model=PublicCompanySettings)
@@ -114,6 +115,12 @@ def create_qr_point(
         latitude=payload.latitude,
         longitude=payload.longitude,
         raio_permitido_metros=payload.raio_permitido_metros,
+        gps_inicializado=payload.latitude is not None and payload.longitude is not None,
+        gps_inicializado_em=(
+            datetime.now(timezone.utc)
+            if payload.latitude is not None and payload.longitude is not None
+            else None
+        ),
         ativo=True,
     )
     db.add(ponto)
@@ -157,6 +164,9 @@ def update_qr_point(
     ponto.latitude = payload.latitude
     ponto.longitude = payload.longitude
     ponto.raio_permitido_metros = payload.raio_permitido_metros
+    ponto.gps_inicializado = payload.latitude is not None and payload.longitude is not None
+    ponto.gps_inicializado_em = datetime.now(timezone.utc) if ponto.gps_inicializado else None
+    ponto.gps_inicializacao_precisao_metros = None
     ponto.ativo = payload.ativo
     db.commit()
     db.refresh(ponto)
@@ -273,16 +283,6 @@ def create_reading(
     if not ponto:
         raise HTTPException(status_code=404, detail="QR Code nao encontrado ou ponto inativo.")
 
-    config = _get_config(db)
-    gps_distance = _validate_gps_reading(
-        ponto=ponto,
-        config=config,
-        gps_latitude=gps_latitude,
-        gps_longitude=gps_longitude,
-        gps_accuracy=gps_precisao_metros,
-        gps_timestamp=gps_data_hora,
-    )
-
     readings_count = db.scalar(
         select(func.count()).select_from(QrReading).where(
             QrReading.turno_id == turno.id,
@@ -313,6 +313,17 @@ def create_reading(
                 ),
             )
 
+    config = _get_config(db)
+    gps_distance, gps_status, gps_initialized_point = _validate_gps_reading(
+        ponto=ponto,
+        config=config,
+        gps_latitude=gps_latitude,
+        gps_longitude=gps_longitude,
+        gps_accuracy=gps_precisao_metros,
+        gps_timestamp=gps_data_hora,
+        employee=employee,
+    )
+
     filename = _save_upload(foto, "ronda")
     leitura = QrReading(
         turno_id=turno.id,
@@ -325,7 +336,8 @@ def create_reading(
         gps_longitude=gps_longitude,
         gps_precisao_metros=gps_precisao_metros,
         gps_distancia_metros=gps_distance,
-        gps_status="GPS VALIDADO",
+        gps_status=gps_status,
+        gps_inicializou_posto=gps_initialized_point,
         status=ReadingStatus.completed,
     )
     db.add(leitura)
@@ -340,7 +352,7 @@ def create_reading(
         gps_longitude,
         gps_precisao_metros,
         gps_distance,
-        "GPS VALIDADO",
+        gps_status,
     )
     return _get_reading(db, leitura.id)
 
@@ -523,6 +535,9 @@ def _build_point_progress(ponto: QrPoint, leituras: list[QrReading], has_active_
         "latitude": ponto.latitude,
         "longitude": ponto.longitude,
         "raio_permitido_metros": ponto.raio_permitido_metros,
+        "gps_inicializado": ponto.gps_inicializado,
+        "gps_inicializado_em": ponto.gps_inicializado_em,
+        "gps_inicializacao_precisao_metros": ponto.gps_inicializacao_precisao_metros,
         "ativo": ponto.ativo,
         "criado_em": ponto.criado_em,
         "passagens_realizadas": completed,
@@ -559,18 +574,8 @@ def _validate_gps_reading(
     gps_longitude: float,
     gps_accuracy: float,
     gps_timestamp: str | None,
-) -> float:
-    if ponto.latitude is None or ponto.longitude is None:
-        logger.warning(
-            "GPS validation blocked: point location not configured. ponto_id=%s codigo_qr=%s",
-            ponto.id,
-            ponto.codigo_qr,
-        )
-        raise HTTPException(
-            status_code=422,
-            detail="Localizacao GPS deste posto ainda nao foi configurada pelo administrador.",
-        )
-
+    employee: Employee,
+) -> tuple[float, str, bool]:
     if not (-90 <= gps_latitude <= 90) or not (-180 <= gps_longitude <= 180):
         logger.warning(
             "GPS validation blocked: invalid coordinates. ponto_id=%s latitude=%s longitude=%s",
@@ -580,7 +585,53 @@ def _validate_gps_reading(
         )
         raise HTTPException(status_code=422, detail="Localizacao GPS invalida. Tente novamente.")
 
-    if gps_accuracy <= 0 or gps_accuracy > MAX_GPS_ACCURACY_METERS:
+    if gps_accuracy <= 0:
+        logger.warning(
+            "GPS validation blocked: invalid accuracy. ponto_id=%s latitude=%s longitude=%s accuracy=%s",
+            ponto.id,
+            gps_latitude,
+            gps_longitude,
+            gps_accuracy,
+        )
+        raise HTTPException(status_code=422, detail="Localizacao GPS invalida. Tente novamente.")
+
+    if not ponto.gps_inicializado or ponto.latitude is None or ponto.longitude is None:
+        if gps_accuracy <= MAX_GPS_AUTO_INIT_ACCURACY_METERS:
+            ponto.latitude = gps_latitude
+            ponto.longitude = gps_longitude
+            ponto.gps_inicializado = True
+            ponto.gps_inicializado_em = datetime.now(timezone.utc)
+            ponto.gps_inicializacao_precisao_metros = gps_accuracy
+            logger.info(
+                "GPS point auto initialized. ponto_id=%s codigo_qr=%s latitude=%s longitude=%s "
+                "accuracy=%s employee_id=%s employee_name=%s gps_timestamp=%s initialized_at=%s",
+                ponto.id,
+                ponto.codigo_qr,
+                gps_latitude,
+                gps_longitude,
+                gps_accuracy,
+                employee.id,
+                employee.name,
+                gps_timestamp,
+                ponto.gps_inicializado_em,
+            )
+            return 0.0, "GPS VALIDADO", True
+
+        logger.info(
+            "GPS point auto initialization deferred due to accuracy. ponto_id=%s codigo_qr=%s "
+            "latitude=%s longitude=%s accuracy=%s max_accuracy=%s employee_id=%s gps_timestamp=%s",
+            ponto.id,
+            ponto.codigo_qr,
+            gps_latitude,
+            gps_longitude,
+            gps_accuracy,
+            MAX_GPS_AUTO_INIT_ACCURACY_METERS,
+            employee.id,
+            gps_timestamp,
+        )
+        return 0.0, "GPS AGUARDANDO INICIALIZACAO", False
+
+    if gps_accuracy > MAX_GPS_ACCURACY_METERS:
         logger.warning(
             "GPS validation blocked: poor accuracy. ponto_id=%s latitude=%s longitude=%s accuracy=%s",
             ponto.id,
@@ -619,13 +670,9 @@ def _validate_gps_reading(
     if not approved:
         raise HTTPException(
             status_code=422,
-            detail=(
-                "Voce esta fora da area permitida deste posto. "
-                f"Distancia atual: {_format_meters(distance)}. "
-                f"Raio permitido: {_format_meters(allowed_radius)}."
-            ),
+            detail="Voce nao esta no local correto deste posto.",
         )
-    return distance
+    return distance, "GPS VALIDADO", False
 
 
 def _haversine_distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
