@@ -16,6 +16,7 @@ class CompanySettingsRead(ORMModel):
     smtp_email_remetente: str | None
     smtp_tls: bool
     tempo_minimo_leituras_segundos: int
+    raio_padrao_metros: int
 
 
 class PublicCompanySettings(BaseModel):
@@ -34,6 +35,7 @@ class CompanySettingsUpdate(BaseModel):
     smtp_senha: str | None = Field(default=None, max_length=255)
     smtp_tls: bool = True
     tempo_minimo_leituras_segundos: int = Field(default=30, ge=0, le=3600)
+    raio_padrao_metros: int = Field(default=20, ge=1, le=1000)
 
 
 class QrPointCreate(BaseModel):
@@ -43,6 +45,9 @@ class QrPointCreate(BaseModel):
     ordem: int = Field(default=0, ge=0)
     meta_passagens_turno: int = Field(default=4, ge=1, le=50)
     carencia_minutos: int = Field(default=45, ge=0, le=1440)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    raio_permitido_metros: int | None = Field(default=None, ge=1, le=1000)
 
 
 class QrPointUpdate(BaseModel):
@@ -52,6 +57,9 @@ class QrPointUpdate(BaseModel):
     ordem: int = Field(default=0, ge=0)
     meta_passagens_turno: int = Field(default=4, ge=1, le=50)
     carencia_minutos: int = Field(default=45, ge=0, le=1440)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    raio_permitido_metros: int | None = Field(default=None, ge=1, le=1000)
     ativo: bool = True
 
 
@@ -63,6 +71,9 @@ class QrPointRead(ORMModel):
     ordem: int
     meta_passagens_turno: int
     carencia_minutos: int
+    latitude: float | None
+    longitude: float | None
+    raio_permitido_metros: int | None
     ativo: bool
     criado_em: datetime
 
@@ -84,6 +95,11 @@ class ReadingRead(ORMModel):
     observacao: str | None
     ocorrencia: str | None
     foto: str
+    gps_latitude: float
+    gps_longitude: float
+    gps_precisao_metros: float
+    gps_distancia_metros: float
+    gps_status: str
     status: str
     ponto: QrPointRead
 

@@ -57,6 +57,36 @@ function minutesUntil(value) {
   return Math.max(Math.ceil((new Date(value).getTime() - Date.now()) / 60000), 0);
 }
 
+function numberOrNull(value) {
+  const text = String(value ?? "").trim();
+  return text ? Number(text) : null;
+}
+
+function fmtMeters(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  return `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} m`;
+}
+
+function gpsErrorMessage(error) {
+  if (error?.code === 1) return "Permissao de GPS negada. Autorize a localizacao para registrar a ronda.";
+  if (error?.code === 2) return "Localizacao indisponivel. Verifique se o GPS esta ativado.";
+  if (error?.code === 3) return "Nao foi possivel obter o GPS a tempo. Tente novamente em area aberta.";
+  return error?.message || "Nao foi possivel capturar a localizacao GPS.";
+}
+
+function getCurrentGpsPosition() {
+  if (!navigator.geolocation) {
+    return Promise.reject(new Error("GPS indisponivel neste navegador ou dispositivo."));
+  }
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    });
+  });
+}
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
@@ -451,6 +481,10 @@ function adminView() {
           <label>Ordem na ronda<input name="ordem" type="number" min="0" value="0" /></label>
           <label>Meta de passagens por turno<input name="meta_passagens_turno" type="number" min="1" value="4" /></label>
           <label>Carencia entre leituras em minutos<input name="carencia_minutos" type="number" min="0" value="45" /></label>
+          <label>Latitude<input name="latitude" type="number" step="0.000001" min="-90" max="90" placeholder="-22.512345" required /></label>
+          <label>Longitude<input name="longitude" type="number" step="0.000001" min="-180" max="180" placeholder="-44.123456" required /></label>
+          <label>Raio permitido em metros<input name="raio_permitido_metros" type="number" min="1" max="1000" placeholder="${state.adminConfig?.raio_padrao_metros || 20}" /></label>
+          <button class="secondary" type="button" onclick="capturePointLocation(this)">Capturar localizacao atual</button>
           <label>Descricao<textarea name="descricao" rows="2" placeholder="Detalhes opcionais do local"></textarea></label>
           <button class="primary" type="submit">Cadastrar ponto</button>
         </form>
@@ -523,6 +557,10 @@ function pointRow(point) {
           <label>Ordem na ronda<input name="ordem" type="number" min="0" value="${point.ordem || 0}" /></label>
           <label>Meta de passagens por turno<input name="meta_passagens_turno" type="number" min="1" max="50" value="${point.meta_passagens_turno || 4}" /></label>
           <label>Carencia entre leituras em minutos<input name="carencia_minutos" type="number" min="0" max="1440" value="${point.carencia_minutos || 45}" /></label>
+          <label>Latitude<input name="latitude" type="number" step="0.000001" min="-90" max="90" value="${point.latitude ?? ""}" required /></label>
+          <label>Longitude<input name="longitude" type="number" step="0.000001" min="-180" max="180" value="${point.longitude ?? ""}" required /></label>
+          <label>Raio permitido em metros<input name="raio_permitido_metros" type="number" min="1" max="1000" value="${point.raio_permitido_metros ?? ""}" placeholder="${state.adminConfig?.raio_padrao_metros || 20}" /></label>
+          <button class="secondary" type="button" onclick="capturePointLocation(this)">Capturar localizacao atual</button>
           <label>Descricao<textarea name="descricao" rows="2">${escapeHtml(point.descricao || "")}</textarea></label>
           <label class="check"><input name="ativo" type="checkbox" ${point.ativo ? "checked" : ""} /> Ponto ativo</label>
           <div class="row-actions form-actions">
@@ -540,6 +578,7 @@ function pointRow(point) {
         <strong>${escapeHtml(point.nome_ponto)}</strong>
         <span>${escapeHtml(point.codigo_qr)} · ${point.ativo ? "Ativo" : "Inativo"}</span>
         <span>Meta: ${point.meta_passagens_turno || 1} passagens por turno - Carencia: ${point.carencia_minutos || 0} min</span>
+        <span>GPS: ${point.latitude !== null && point.longitude !== null ? `${fmtMeters(point.raio_permitido_metros || state.adminConfig?.raio_padrao_metros || 20)} de raio` : "Nao configurado"}</span>
         <img class="qr-preview" src="/ronda/pontos/${point.id}/qr.svg" alt="QR ${escapeHtml(point.nome_ponto)}" />
       </div>
       <div class="row-actions">
@@ -559,6 +598,7 @@ function configForm() {
       <label>E-mail supervisor<input name="email_supervisor" type="email" required value="${escapeHtml(config.email_supervisor || "")}" /></label>
       <label>Cor principal<input name="cor_primaria" type="color" value="${escapeHtml(config.cor_primaria || "#1f6feb")}" /></label>
       <label>Tempo minimo entre leituras<input name="tempo_minimo_leituras_segundos" type="number" min="0" value="${config.tempo_minimo_leituras_segundos ?? 30}" /></label>
+      <label>Raio GPS padrao em metros<input name="raio_padrao_metros" type="number" min="1" max="1000" value="${config.raio_padrao_metros ?? 20}" /></label>
       <label>Host SMTP<input name="smtp_host" value="${escapeHtml(config.smtp_host || "")}" /></label>
       <label>Porta SMTP<input name="smtp_porta" type="number" value="${config.smtp_porta || 587}" /></label>
       <label>E-mail remetente<input name="smtp_email_remetente" type="email" value="${escapeHtml(config.smtp_email_remetente || "")}" /></label>
@@ -620,14 +660,21 @@ async function submitReading(event) {
   event.preventDefault();
   const formElement = event.currentTarget;
   try {
-    await api("/ronda/leituras", { method: "POST", body: new FormData(formElement) });
+    setNotice("Capturando localizacao GPS...");
+    const position = await getCurrentGpsPosition();
+    const data = new FormData(formElement);
+    data.append("gps_latitude", position.coords.latitude);
+    data.append("gps_longitude", position.coords.longitude);
+    data.append("gps_precisao_metros", position.coords.accuracy);
+    data.append("gps_data_hora", new Date(position.timestamp).toISOString());
+    await api("/ronda/leituras", { method: "POST", body: data });
     formElement.reset();
     stopCameraScan();
     await refresh();
     setNotice("Leitura registrada com foto.");
   } catch (error) {
     await refresh();
-    setError(error.message);
+    setError(gpsErrorMessage(error));
   }
 }
 
@@ -719,6 +766,23 @@ function selectEmployee(id) {
 function editPoint(id) {
   state.editingPointId = id;
   render();
+}
+
+async function capturePointLocation(button) {
+  const formElement = button.closest("form");
+  try {
+    button.disabled = true;
+    button.textContent = "Capturando GPS...";
+    const position = await getCurrentGpsPosition();
+    formElement.latitude.value = position.coords.latitude.toFixed(6);
+    formElement.longitude.value = position.coords.longitude.toFixed(6);
+    setNotice(`Localizacao capturada. Precisao aproximada: ${fmtMeters(position.coords.accuracy)}.`);
+  } catch (error) {
+    setError(gpsErrorMessage(error));
+  } finally {
+    button.disabled = false;
+    button.textContent = "Capturar localizacao atual";
+  }
 }
 
 function printPointQr(id) {
@@ -925,6 +989,9 @@ async function createPoint(event) {
         ordem: Number(form.ordem || 0),
         meta_passagens_turno: Number(form.meta_passagens_turno || 4),
         carencia_minutos: Number(form.carencia_minutos || 45),
+        latitude: Number(form.latitude),
+        longitude: Number(form.longitude),
+        raio_permitido_metros: numberOrNull(form.raio_permitido_metros),
       }),
     });
     formElement.reset();
@@ -959,6 +1026,9 @@ async function updatePoint(event, id) {
         ordem: Number(form.ordem || 0),
         meta_passagens_turno: Number(form.meta_passagens_turno || 4),
         carencia_minutos: Number(form.carencia_minutos || 45),
+        latitude: Number(form.latitude),
+        longitude: Number(form.longitude),
+        raio_permitido_metros: numberOrNull(form.raio_permitido_metros),
         ativo: formElement.ativo.checked,
       }),
     });
@@ -992,6 +1062,7 @@ async function saveConfig(event) {
         ...data,
         smtp_porta: Number(data.smtp_porta || 587),
         tempo_minimo_leituras_segundos: Number(data.tempo_minimo_leituras_segundos || 0),
+        raio_padrao_metros: Number(data.raio_padrao_metros || 20),
         smtp_tls: formElement.smtp_tls.checked,
       }),
     });

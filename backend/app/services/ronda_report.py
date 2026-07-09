@@ -46,6 +46,7 @@ def generate_shift_report_html(db: Session, turno: Shift, config: CompanySetting
             f'<a href="{html.escape(leitura.foto)}">Foto {index}</a>'
             for index, leitura in enumerate(leituras, start=1)
         )
+        gps_info = _gps_info_html(ultima_leitura)
         rows.append(
             f"""
             <tr>
@@ -55,6 +56,7 @@ def generate_shift_report_html(db: Session, turno: Shift, config: CompanySetting
               <td>{_fmt(ultima_leitura.data_hora) if ultima_leitura else '-'}</td>
               <td>{html.escape(ultima_leitura.observacao or '-') if ultima_leitura else '-'}</td>
               <td>{html.escape(ultima_leitura.ocorrencia or '-') if ultima_leitura else '-'}</td>
+              <td>{gps_info}</td>
               <td>{fotos or '-'}</td>
             </tr>
             """
@@ -118,6 +120,7 @@ def generate_shift_report_html(db: Session, turno: Shift, config: CompanySetting
           <th>Ultimo horario</th>
           <th>Observacao</th>
           <th>Ocorrencia</th>
+          <th>Localizacao</th>
           <th>Foto</th>
         </tr>
       </thead>
@@ -264,3 +267,30 @@ def _fmt(value: datetime | None) -> str:
     if value is None:
         return "-"
     return value.strftime("%d/%m/%Y %H:%M")
+
+
+def _gps_info_html(leitura: QrReading | None) -> str:
+    if leitura is None:
+        return "-"
+    status = leitura.gps_status or "GPS VALIDADO"
+    status_label = "GPS VALIDADO" if status == "GPS VALIDADO" else "GPS INVALIDO"
+    return (
+        f"<strong>{html.escape(status_label)}</strong><br />"
+        f"Latitude: {_fmt_coord(leitura.gps_latitude)}<br />"
+        f"Longitude: {_fmt_coord(leitura.gps_longitude)}<br />"
+        f"Precisao GPS: {_fmt_meters(leitura.gps_precisao_metros)}<br />"
+        f"Distancia do posto: {_fmt_meters(leitura.gps_distancia_metros)}"
+    )
+
+
+def _fmt_coord(value: float | None) -> str:
+    return "-" if value is None else f"{value:.6f}"
+
+
+def _fmt_meters(value: float | None) -> str:
+    if value is None:
+        return "-"
+    formatted = f"{value:.1f}".replace(".", ",")
+    if formatted.endswith(",0"):
+        formatted = formatted[:-2]
+    return f"{formatted} metros"

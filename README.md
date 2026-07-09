@@ -8,16 +8,16 @@ O documento completo do escopo esta em [ESPECIFICACAO_RONDA_ELETRONICA_QRCODE.md
 
 - Login com senha e token de sessao.
 - Inicio e finalizacao de turno.
-- Leitura de QR Code por camera no navegador Android quando suportado.
-- Campo manual para codigo QR como alternativa operacional.
+- Registro de ponto por selecao dos pontos cadastrados, com camera QR como apoio quando suportada.
 - Foto obrigatoria apos cada leitura.
-- Registro automatico de funcionario, ponto, data e horario do servidor.
+- Registro automatico de funcionario, ponto, data, horario do servidor e localizacao GPS.
+- Validacao GPS por Haversine com latitude, longitude, precisao, distancia e raio permitido.
 - Bloqueio de leitura duplicada no mesmo turno.
 - Tempo minimo configuravel entre leituras.
 - Observacao e ocorrencia opcionais.
 - Relatorio HTML automatico ao finalizar turno ou logout.
-- Envio automatico por e-mail quando SMTP estiver configurado.
-- Painel administrativo web para funcionarios, pontos QR, empresa, logo, SMTP e cor principal.
+- Envio automatico por e-mail via Resend quando configurado.
+- Painel administrativo web para funcionarios, pontos QR, GPS, empresa, logo, e-mail e cor principal.
 - QR Code SVG gerado para cada ponto.
 
 ## Tecnologia
@@ -76,13 +76,15 @@ DATABASE_URL=postgresql+psycopg://ronda:ronda@localhost:5432/ronda_eletronica
 
 1. Funcionario faz login no celular compartilhado.
 2. Toca em `Iniciar Turno`.
-3. Toca em `Ler QR Code`.
-4. Escaneia o QR Code ou informa o codigo.
+3. Toca em `Registrar ponto`.
+4. Escolhe o ponto cadastrado ou usa a camera para selecionar pelo QR Code.
 5. Tira a foto obrigatoria do local.
-6. Adiciona observacao ou ocorrencia se precisar.
-7. Salva a leitura.
-8. Finaliza o turno ou faz logout.
-9. O sistema gera o relatorio e tenta enviar o e-mail automaticamente.
+6. O navegador solicita a localizacao GPS do celular.
+7. O sistema valida se o funcionario esta dentro do raio permitido do posto.
+8. Adiciona observacao ou ocorrencia se precisar.
+9. Salva a leitura.
+10. Finaliza o turno ou faz logout.
+11. O sistema gera o relatorio e tenta enviar o e-mail automaticamente.
 
 ## Administracao
 
@@ -90,11 +92,25 @@ No perfil administrador ou supervisor:
 
 - Cadastrar funcionarios.
 - Ativar/desativar funcionarios.
-- Cadastrar pontos QR.
+- Cadastrar pontos QR com latitude, longitude e raio permitido em metros.
+- Capturar a localizacao atual do celular ao cadastrar ou editar o ponto.
 - Ativar/desativar pontos QR.
 - Visualizar QR Code SVG dos pontos.
-- Configurar nome da empresa, logo, e-mail do supervisor e cor principal.
-- Configurar SMTP.
+- Configurar nome da empresa, logo, e-mail do supervisor, cor principal e raio GPS padrao.
+
+## Validacao GPS
+
+Cada ponto de ronda possui latitude, longitude e raio permitido em metros. Se o ponto nao tiver raio proprio, o sistema usa o raio padrao global, inicialmente 20 metros.
+
+Ao registrar uma leitura, o frontend usa a Geolocation API do navegador para capturar latitude, longitude, precisao e data/hora da localizacao. O backend calcula a distancia ate o ponto pela formula de Haversine.
+
+A leitura e aprovada somente quando:
+
+- o GPS esta disponivel e autorizado;
+- a precisao do GPS e de ate 30 metros;
+- a distancia atual e menor ou igual ao raio permitido do ponto.
+
+Se o funcionario estiver fora da area permitida, a leitura e bloqueada com a mensagem de distancia atual e raio permitido. Leituras aprovadas registram latitude, longitude, precisao, distancia e status GPS no banco e no relatorio.
 
 ## Principais Rotas
 
@@ -131,11 +147,16 @@ O compose cria:
 - Caddy para HTTP/HTTPS
 - volumes persistentes para banco, uploads e relatorios
 
-## SMTP
+## E-mail
 
-O envio de e-mail fica configuravel pelo painel administrativo.
+O envio automatico do relatorio usa Resend via HTTPS. Configure no ambiente:
 
-Enquanto o SMTP nao estiver configurado, o sistema ainda encerra o turno e gera o relatorio HTML em `reports/`, mas informa que o envio ficou aguardando configuracao.
+```text
+RESEND_API_KEY=...
+RESEND_FROM_EMAIL=Ronda QR <relatorios@seudominio.com.br>
+```
+
+Enquanto o Resend nao estiver configurado, o sistema ainda encerra o turno e gera o relatorio HTML em `reports/`, mas informa que o envio ficou aguardando configuracao.
 
 ## Testes
 

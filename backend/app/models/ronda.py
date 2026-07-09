@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.db.session import Base
@@ -32,6 +32,7 @@ class CompanySettings(Base):
     smtp_senha: Mapped[str | None] = mapped_column(String(255), nullable=True)
     smtp_tls: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     tempo_minimo_leituras_segundos: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    raio_padrao_metros: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
 
 
 class QrPoint(Base):
@@ -44,6 +45,9 @@ class QrPoint(Base):
     ordem: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     meta_passagens_turno: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
     carencia_minutos: Mapped[int] = mapped_column(Integer, default=45, nullable=False)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    raio_permitido_metros: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
@@ -86,6 +90,11 @@ class QrReading(Base):
     observacao: Mapped[str | None] = mapped_column(Text, nullable=True)
     ocorrencia: Mapped[str | None] = mapped_column(Text, nullable=True)
     foto: Mapped[str] = mapped_column(String(500), nullable=False)
+    gps_latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    gps_longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    gps_precisao_metros: Mapped[float] = mapped_column(Float, nullable=False)
+    gps_distancia_metros: Mapped[float] = mapped_column(Float, nullable=False)
+    gps_status: Mapped[str] = mapped_column(String(40), default="GPS VALIDADO", nullable=False)
     status: Mapped[ReadingStatus] = mapped_column(
         Enum(ReadingStatus), default=ReadingStatus.completed, nullable=False
     )

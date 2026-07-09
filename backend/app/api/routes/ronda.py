@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -41,6 +42,7 @@ from backend.app.services.storage import cleanup_old_storage_files, save_compres
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+MAX_GPS_ACCURACY_METERS = 30
 
 
 @router.get("/public-config", response_model=PublicCompanySettings)
@@ -109,6 +111,9 @@ def create_qr_point(
         ordem=payload.ordem,
         meta_passagens_turno=payload.meta_passagens_turno,
         carencia_minutos=payload.carencia_minutos,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        raio_permitido_metros=payload.raio_permitido_metros,
         ativo=True,
     )
     db.add(ponto)
@@ -149,6 +154,9 @@ def update_qr_point(
     ponto.ordem = payload.ordem
     ponto.meta_passagens_turno = payload.meta_passagens_turno
     ponto.carencia_minutos = payload.carencia_minutos
+    ponto.latitude = payload.latitude
+    ponto.longitude = payload.longitude
+    ponto.raio_permitido_metros = payload.raio_permitido_metros
     ponto.ativo = payload.ativo
     db.commit()
     db.refresh(ponto)
@@ -239,6 +247,10 @@ def current_shift_status(
 @router.post("/leituras", response_model=ReadingRead, status_code=status.HTTP_201_CREATED)
 def create_reading(
     codigo_qr: str = Form(...),
+    gps_latitude: float = Form(...),
+    gps_longitude: float = Form(...),
+    gps_precisao_metros: float = Form(...),
+    gps_data_hora: str | None = Form(default=None),
     observacao: str | None = Form(default=None),
     ocorrencia: str | None = Form(default=None),
     foto: UploadFile = File(...),
@@ -260,6 +272,16 @@ def create_reading(
     )
     if not ponto:
         raise HTTPException(status_code=404, detail="QR Code nao encontrado ou ponto inativo.")
+
+    config = _get_config(db)
+    gps_distance = _validate_gps_reading(
+        ponto=ponto,
+        config=config,
+        gps_latitude=gps_latitude,
+        gps_longitude=gps_longitude,
+        gps_accuracy=gps_precisao_metros,
+        gps_timestamp=gps_data_hora,
+    )
 
     readings_count = db.scalar(
         select(func.count()).select_from(QrReading).where(
@@ -299,10 +321,27 @@ def create_reading(
         observacao=observacao,
         ocorrencia=ocorrencia,
         foto=f"/uploads/{filename}",
+        gps_latitude=gps_latitude,
+        gps_longitude=gps_longitude,
+        gps_precisao_metros=gps_precisao_metros,
+        gps_distancia_metros=gps_distance,
+        gps_status="GPS VALIDADO",
         status=ReadingStatus.completed,
     )
     db.add(leitura)
     db.commit()
+    logger.info(
+        "Ronda reading saved with GPS validation. leitura_id=%s turno_id=%s ponto_id=%s "
+        "latitude=%s longitude=%s accuracy=%s distance=%s result=%s",
+        leitura.id,
+        turno.id,
+        ponto.id,
+        gps_latitude,
+        gps_longitude,
+        gps_precisao_metros,
+        gps_distance,
+        "GPS VALIDADO",
+    )
     return _get_reading(db, leitura.id)
 
 
@@ -481,6 +520,9 @@ def _build_point_progress(ponto: QrPoint, leituras: list[QrReading], has_active_
         "ordem": ponto.ordem,
         "meta_passagens_turno": ponto.meta_passagens_turno,
         "carencia_minutos": ponto.carencia_minutos,
+        "latitude": ponto.latitude,
+        "longitude": ponto.longitude,
+        "raio_permitido_metros": ponto.raio_permitido_metros,
         "ativo": ponto.ativo,
         "criado_em": ponto.criado_em,
         "passagens_realizadas": completed,
@@ -507,3 +549,101 @@ def _normalize_code(value: str) -> str:
 
 def _as_aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _validate_gps_reading(
+    *,
+    ponto: QrPoint,
+    config: CompanySettings,
+    gps_latitude: float,
+    gps_longitude: float,
+    gps_accuracy: float,
+    gps_timestamp: str | None,
+) -> float:
+    if ponto.latitude is None or ponto.longitude is None:
+        logger.warning(
+            "GPS validation blocked: point location not configured. ponto_id=%s codigo_qr=%s",
+            ponto.id,
+            ponto.codigo_qr,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="Localizacao GPS deste posto ainda nao foi configurada pelo administrador.",
+        )
+
+    if not (-90 <= gps_latitude <= 90) or not (-180 <= gps_longitude <= 180):
+        logger.warning(
+            "GPS validation blocked: invalid coordinates. ponto_id=%s latitude=%s longitude=%s",
+            ponto.id,
+            gps_latitude,
+            gps_longitude,
+        )
+        raise HTTPException(status_code=422, detail="Localizacao GPS invalida. Tente novamente.")
+
+    if gps_accuracy <= 0 or gps_accuracy > MAX_GPS_ACCURACY_METERS:
+        logger.warning(
+            "GPS validation blocked: poor accuracy. ponto_id=%s latitude=%s longitude=%s accuracy=%s",
+            ponto.id,
+            gps_latitude,
+            gps_longitude,
+            gps_accuracy,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Precisao do GPS insuficiente. "
+                f"Atual: {_format_meters(gps_accuracy)}. Maximo permitido: {MAX_GPS_ACCURACY_METERS} metros."
+            ),
+        )
+
+    allowed_radius = ponto.raio_permitido_metros or config.raio_padrao_metros or 20
+    distance = _haversine_distance_meters(
+        gps_latitude,
+        gps_longitude,
+        ponto.latitude,
+        ponto.longitude,
+    )
+    approved = distance <= allowed_radius
+    logger.info(
+        "GPS validation result. ponto_id=%s latitude=%s longitude=%s accuracy=%s "
+        "distance=%s allowed_radius=%s approved=%s gps_timestamp=%s",
+        ponto.id,
+        gps_latitude,
+        gps_longitude,
+        gps_accuracy,
+        distance,
+        allowed_radius,
+        approved,
+        gps_timestamp,
+    )
+    if not approved:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Voce esta fora da area permitida deste posto. "
+                f"Distancia atual: {_format_meters(distance)}. "
+                f"Raio permitido: {_format_meters(allowed_radius)}."
+            ),
+        )
+    return distance
+
+
+def _haversine_distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    # Haversine calcula a distancia em linha reta sobre a curvatura aproximada da Terra.
+    earth_radius_meters = 6371000
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(delta_phi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
+    )
+    return earth_radius_meters * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _format_meters(value: float | int) -> str:
+    rounded = round(float(value), 1)
+    if rounded.is_integer():
+        return f"{int(rounded)} metros"
+    return f"{str(rounded).replace('.', ',')} metros"
